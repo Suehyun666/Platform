@@ -14,6 +14,7 @@ ShmManager::ShmManager(const std::string& feature_id, bool initial_enabled)
     : feature_id_(feature_id)
 {
     const std::string name = shmName(feature_id);
+    shm_unlink(name.c_str());  // 좀비 SHM 정리
     fd_ = shm_open(name.c_str(), O_CREAT | O_RDWR, 0666);
     if (fd_ < 0) { std::cerr << "[SHM] shm_open 실패: " << name << "\n"; return; }
 

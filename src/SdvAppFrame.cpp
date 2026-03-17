@@ -22,7 +22,11 @@ int SdvAppFrame::run(int argc, char* argv[]) {
     for (int i = 1; i < argc; ++i) {
         std::string_view arg = argv[i];
         if (arg.starts_with("--loop-ms=")) {
-            loop_interval_ms_ = std::stoi(std::string(arg.substr(10)));
+            try {
+                loop_interval_ms_ = std::stoi(std::string(arg.substr(10)));
+            } catch (...) {
+                std::cerr << "[SDK] 잘못된 --loop-ms 값: " << arg << "\n";
+            }
             continue;
         }
 

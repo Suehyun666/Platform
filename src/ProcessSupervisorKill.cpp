@@ -21,6 +21,17 @@ SupervisorError ProcessSupervisor::gracefulKill(const std::string& process_id, i
         pid = rec.pid;
     }
 
+    // SHM kill switch + SIGTERM 동시 설정
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto p_it = all_profiles_.find(process_id);
+        if (p_it != all_profiles_.end()) {
+            for (const auto& f : p_it->second.features) {
+                auto s_it = shm_slots_.find(f.feature_id);
+                if (s_it != shm_slots_.end()) s_it->second->setKilled(true);
+            }
+        }
+    }
     std::cout << "[Supervisor] SIGTERM → " << process_id << " (pid=" << pid << ")\n";
     ::kill(pid, SIGTERM);
 
@@ -58,7 +69,7 @@ SupervisorError ProcessSupervisor::hardKill(const std::string& process_id) {
         }
     }
 
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
     while (std::chrono::steady_clock::now() < deadline) {
         if (waitpid(pid, nullptr, WNOHANG) > 0) {
             std::lock_guard<std::mutex> lock(mutex_);
