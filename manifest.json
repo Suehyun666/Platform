@@ -1,22 +1,28 @@
 [
   {
-    "feature_id": "adas",
+    "process_id": "adas",
     "binary_path": "application/bin/adas",
-    "flag": true,
     "restart_policy": {
       "max_retries": 3,
       "retry_delay_ms": 1000,
       "action_on_failure": "DISABLE_FLAG"
-    }
+    },
+    "features": [
+      { "feature_id": "collision_avoidance", "flag": true },
+      { "feature_id": "blind_spot_detection", "flag": true }
+    ]
   },
   {
-    "feature_id": "navigation",
+    "process_id": "navigation",
     "binary_path": "application/bin/navigation",
-    "flag": false,
     "restart_policy": {
       "max_retries": 3,
       "retry_delay_ms": 1000,
       "action_on_failure": "DISABLE_FLAG"
-    }
+    },
+    "features": [
+      { "feature_id": "route_guidance", "flag": true },
+      { "feature_id": "map_rendering",  "flag": false }
+    ]
   }
 ]

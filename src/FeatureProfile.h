@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 
 struct RestartPolicy {
     int max_retries     = 3;
@@ -7,9 +8,24 @@ struct RestartPolicy {
     std::string action_on_failure = "DISABLE_FLAG";
 };
 
-struct FeatureProfile {
+// 프로세스 내부의 개별 피처
+struct FeatureFlag {
     std::string feature_id;
-    std::string binary_path;
     bool        flag = false;
+};
+
+// 하나의 프로세스(바이너리) + 그 안에 속한 피처 목록
+struct ProcessProfile {
+    std::string process_id;
+    std::string binary_path;
     RestartPolicy restart_policy;
+    std::vector<FeatureFlag> features;
+
+    // 피처 중 하나라도 켜져 있으면 프로세스를 띄운다
+    bool hasAnyEnabledFeature() const {
+        for (const auto& f : features) {
+            if (f.flag) return true;
+        }
+        return false;
+    }
 };

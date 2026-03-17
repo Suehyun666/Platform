@@ -11,13 +11,13 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    // 2. flag가 ON인 feature만 실행
+    // 2. 활성 피처가 하나라도 있는 프로세스만 실행
     ProcessSupervisor supervisor;
     for (const auto& p : *profiles) {
-        if (p.flag) {
+        if (p.hasAnyEnabledFeature()) {
             supervisor.launch(p);
         } else {
-            std::cout << "[Platform] skip: " << p.feature_id << " (flag=OFF)\n";
+            std::cout << "[Platform] skip: " << p.process_id << " (모든 피처 OFF)\n";
         }
     }
 
