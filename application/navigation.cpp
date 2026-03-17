@@ -7,15 +7,24 @@ public:
     NavigationApp() : SdvAppFrame(200) {}
 
     void onStart(const std::vector<std::string>& features) override {
-        std::cout << "[Navigation] 초기화: " << features.size() << "개 피처 로드\n";
+        for (const auto& f : features) {
+            if (f == "route_guidance")  std::cout << "[Navigation] GPS 모듈 초기화, 경로 탐색 준비\n";
+            else if (f == "map_rendering") std::cout << "[Navigation] 지도 렌더러 초기화\n";
+        }
     }
 
     void onUpdate(const std::string& feature_id) override {
-        std::cout << "[Navigation/" << feature_id << "] 동작 중...\n";
+        if (feature_id == "route_guidance") {
+            // 현재 위치 기반 경로 재계산 (실제 구현 시 GPS 데이터 읽기)
+            std::cout << "[Navigation] route_guidance: 경로 안내 갱신 중...\n";
+        } else if (feature_id == "map_rendering") {
+            // 화면에 지도 타일 렌더링 (실제 구현 시 GPU 호출)
+            std::cout << "[Navigation] map_rendering: 지도 타일 렌더링 중...\n";
+        }
     }
 
     void onStop() override {
-        std::cout << "[Navigation] 안전 종료 완료\n";
+        std::cout << "[Navigation] GPS 연결 종료, 안전 종료 완료\n";
     }
 };
 
