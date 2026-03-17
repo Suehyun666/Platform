@@ -20,6 +20,7 @@ void ProcessSupervisor::registerProfile(const ProcessProfile& profile) {
 }
 
 ProcessSupervisor::~ProcessSupervisor() {
+    watchdog_.stop();  // waitpid 경쟁 방지: Watchdog 먼저 중단
     std::lock_guard<std::mutex> lock(mutex_);
     for (auto& [id, rec] : registry_) {
         if (rec.pid > 0 && ::kill(rec.pid, 0) == 0) {
@@ -39,6 +40,12 @@ SupervisorError ProcessSupervisor::launchLocked(const ProcessProfile& profile) {
     if (it != registry_.end() && it->second.pid > 0 && ::kill(it->second.pid, 0) == 0) {
         std::cerr << "[Supervisor] 이미 실행 중: " << profile.process_id << "\n";
         return SupervisorError::AlreadyRunning;
+    }
+
+    // hardKill 후 재기동 시 is_killed 초기화
+    for (const auto& f : profile.features) {
+        auto s_it = shm_slots_.find(f.feature_id);
+        if (s_it != shm_slots_.end()) s_it->second->setKilled(false);
     }
 
     pid_t pid = fork();

@@ -47,6 +47,26 @@ SupervisorError ProcessSupervisor::hardKill(const std::string& process_id) {
         if (it == registry_.end()) return SupervisorError::NotFound;
         it->second.state = ProcessState::Disabled;
         pid = it->second.pid;
+
+        // SHM kill switch → 앱이 onStop() 후 자발적 종료 기회
+        auto p_it = all_profiles_.find(process_id);
+        if (p_it != all_profiles_.end()) {
+            for (const auto& f : p_it->second.features) {
+                auto s_it = shm_slots_.find(f.feature_id);
+                if (s_it != shm_slots_.end()) s_it->second->setKilled(true);
+            }
+        }
+    }
+
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (waitpid(pid, nullptr, WNOHANG) > 0) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            registry_.erase(process_id);
+            std::cout << "[Supervisor] Kill Switch 종료: " << process_id << "\n";
+            return SupervisorError::Ok;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
     ::kill(pid, SIGKILL);

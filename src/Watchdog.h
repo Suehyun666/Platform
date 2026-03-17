@@ -16,6 +16,7 @@ public:
              std::mutex& mutex,
              RestartFn restart_cb);
     ~Watchdog();
+    void stop();  // 명시적 중단 (소멸자보다 먼저 호출 가능)
 
     Watchdog(const Watchdog&)            = delete;
     Watchdog& operator=(const Watchdog&) = delete;

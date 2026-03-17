@@ -13,10 +13,12 @@ Watchdog::Watchdog(std::unordered_map<std::string, ProcessRecord>& registry,
     thread_ = std::thread(&Watchdog::loop, this);
 }
 
-Watchdog::~Watchdog() {
+void Watchdog::stop() {
     running_ = false;
     if (thread_.joinable()) thread_.join();
 }
+
+Watchdog::~Watchdog() { stop(); }
 
 void Watchdog::loop() {
     while (running_) {
