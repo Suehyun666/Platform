@@ -19,11 +19,8 @@ SupervisorError ProcessSupervisor::gracefulKill(const std::string& process_id, i
         }
         rec.state = ProcessState::Stopping;
         pid = rec.pid;
-    }
 
-    // SHM kill switch + SIGTERM 동시 설정
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
+        // SHM kill switch + SIGTERM 동시 설정
         auto p_it = all_profiles_.find(process_id);
         if (p_it != all_profiles_.end()) {
             for (const auto& f : p_it->second.features) {

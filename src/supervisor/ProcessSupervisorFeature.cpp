@@ -1,6 +1,5 @@
 #include "ProcessSupervisor.h"
 #include <iostream>
-#include <csignal>
 
 SupervisorError ProcessSupervisor::setFeatureFlag(const std::string& process_id,
                                                    const std::string& feature_id, bool value) {

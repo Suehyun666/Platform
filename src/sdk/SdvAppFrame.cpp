@@ -18,7 +18,6 @@ int SdvAppFrame::run(int argc, char* argv[]) {
     // argv 파싱:
     //   --loop-ms=N  → loop_interval_ms_ override (manifest에서 주입)
     //   그 외        → feature ID (SHM 연결 대상)
-    std::vector<std::string> features;
     for (int i = 1; i < argc; ++i) {
         std::string_view arg = argv[i];
         if (arg.starts_with("--loop-ms=")) {
@@ -29,8 +28,6 @@ int SdvAppFrame::run(int argc, char* argv[]) {
             }
             continue;
         }
-
-        features.emplace_back(argv[i]);
 
         FeatureControlState* ptr = nullptr;
         for (int r = 0; r < kShmRetries && !ptr; ++r) {
@@ -45,11 +42,13 @@ int SdvAppFrame::run(int argc, char* argv[]) {
         }
     }
 
-    // 피처별 onStart: 등록된 피처 → IFeature::onStart(), 미등록 → fallback
-    for (const auto& name : features) {
+    // onStart: SHM 연결 성공한 피처만 대상 (연결 실패 피처는 호출하지 않음)
+    std::vector<std::string> connected;
+    for (const auto& [name, _] : slots_) {
+        connected.push_back(name);
         if (auto* feat = FeatureRegistry::instance().get(name)) feat->onStart();
     }
-    onStart(features);  // fallback (SDV_FEATURE 미사용 앱용)
+    onStart(connected);  // fallback (SDV_FEATURE 미사용 앱용)
 
     bool killed = false;
     while (running_ && !killed) {

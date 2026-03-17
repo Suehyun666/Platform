@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <algorithm>
 
 struct RestartPolicy {
     int max_retries     = 3;
@@ -24,9 +25,6 @@ struct ProcessProfile {
 
     // 피처 중 하나라도 켜져 있으면 프로세스를 띄운다
     bool hasAnyEnabledFeature() const {
-        for (const auto& f : features) {
-            if (f.flag) return true;
-        }
-        return false;
+        return std::ranges::any_of(features, [](const auto& f) { return f.flag; });
     }
 };
