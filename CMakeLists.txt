@@ -12,6 +12,7 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(nlohmann_json)
 
+# ── Platform (Supervisor) ────────────────────────────────────────────────────
 add_executable(Platform
     src/main.cpp
     src/ManifestLoader.cpp
@@ -28,15 +29,21 @@ add_custom_command(TARGET Platform POST_BUILD
         $<TARGET_FILE_DIR:Platform>/manifest.json
 )
 
-# 테스트용 앱 - application/bin/ 에 빌드됨
+# ── SDK 라이브러리 (앱들이 링크함) ─────────────────────────────────────────
+add_library(sdv_sdk STATIC
+    src/SdvAppFrame.cpp
+    src/ShmManager.cpp
+)
+target_include_directories(sdv_sdk PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(sdv_sdk PUBLIC rt)
+
+# ── 앱 바이너리 ─────────────────────────────────────────────────────────────
 set(APP_OUTPUT_DIR ${CMAKE_SOURCE_DIR}/application/bin)
 
-add_executable(adas application/adas.cpp src/ShmManager.cpp)
-target_include_directories(adas PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(adas PRIVATE rt)
+add_executable(adas application/adas.cpp)
+target_link_libraries(adas PRIVATE sdv_sdk)
 set_target_properties(adas PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${APP_OUTPUT_DIR})
 
-add_executable(navigation application/navigation.cpp src/ShmManager.cpp)
-target_include_directories(navigation PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(navigation PRIVATE rt)
+add_executable(navigation application/navigation.cpp)
+target_link_libraries(navigation PRIVATE sdv_sdk)
 set_target_properties(navigation PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${APP_OUTPUT_DIR})

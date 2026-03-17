@@ -18,6 +18,7 @@ struct FeatureFlag {
 struct ProcessProfile {
     std::string process_id;
     std::string binary_path;
+    int         loop_interval_ms = 100; // SDK 메인 루프 주기 (manifest로 주입, 앱 기본값 override)
     RestartPolicy restart_policy;
     std::vector<FeatureFlag> features;
 

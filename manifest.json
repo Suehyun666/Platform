@@ -2,6 +2,7 @@
   {
     "process_id": "adas",
     "binary_path": "application/bin/adas",
+    "loop_interval_ms": 100,
     "restart_policy": {
       "max_retries": 3,
       "retry_delay_ms": 1000,
@@ -15,6 +16,7 @@
   {
     "process_id": "navigation",
     "binary_path": "application/bin/navigation",
+    "loop_interval_ms": 500,
     "restart_policy": {
       "max_retries": 3,
       "retry_delay_ms": 1000,

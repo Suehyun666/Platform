@@ -33,23 +33,30 @@ SupervisorError ProcessSupervisor::launchLocked(const ProcessProfile& profile) {
         return SupervisorError::AlreadyRunning;
     }
 
+    // SHM은 fork 전에 생성해야 자식 프로세스가 즉시 열 수 있다
+    for (const auto& f : profile.features)
+        shm_slots_[f.feature_id] = std::make_unique<ShmManager>(f.feature_id, f.flag);
+
     pid_t pid = fork();
-    if (pid < 0) { std::cerr << "[Supervisor] fork 실패\n"; return SupervisorError::ForkFailed; }
+    if (pid < 0) {
+        for (const auto& f : profile.features) shm_slots_.erase(f.feature_id);
+        std::cerr << "[Supervisor] fork 실패\n";
+        return SupervisorError::ForkFailed;
+    }
 
     if (pid == 0) {
         std::string log = profile.process_id + ".log";
         int fd = open(log.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
         if (fd >= 0) { dup2(fd, STDOUT_FILENO); dup2(fd, STDERR_FILENO); close(fd); }
 
-        std::vector<const char*> argv = {profile.binary_path.c_str()};
+        // manifest의 loop_interval_ms를 --loop-ms=N 형태로 전달 (앱 기본값 override)
+        std::string loop_arg = "--loop-ms=" + std::to_string(profile.loop_interval_ms);
+        std::vector<const char*> argv = {profile.binary_path.c_str(), loop_arg.c_str()};
         for (const auto& f : profile.features) if (f.flag) argv.push_back(f.feature_id.c_str());
         argv.push_back(nullptr);
         execvp(argv[0], const_cast<char**>(argv.data()));
         _exit(EXIT_FAILURE);
     }
-
-    for (const auto& f : profile.features)
-        shm_slots_[f.feature_id] = std::make_unique<ShmManager>(f.feature_id, f.flag);
 
     auto& rec           = registry_[profile.process_id];
     rec.pid             = pid;

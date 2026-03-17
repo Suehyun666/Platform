@@ -14,8 +14,9 @@ static ProcessProfile parseProfile(const json& item, bool& ok) {
         return p;
     }
 
-    p.process_id  = item["process_id"].get<std::string>();
-    p.binary_path = item["binary_path"].get<std::string>();
+    p.process_id       = item["process_id"].get<std::string>();
+    p.binary_path      = item["binary_path"].get<std::string>();
+    p.loop_interval_ms = item.value("loop_interval_ms", 100);
 
     if (item.contains("restart_policy")) {
         const auto& rp             = item["restart_policy"];
