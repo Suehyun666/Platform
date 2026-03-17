@@ -30,7 +30,7 @@ int SdvAppFrame::run(int argc, char* argv[]) {
 
         FeatureControlState* ptr = nullptr;
         for (int r = 0; r < kShmRetries && !ptr; ++r) {
-            ptr = ShmManager::openForRead(argv[i]);
+            ptr = ShmManager::connect(argv[i]);
             if (!ptr) std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
 

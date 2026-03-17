@@ -58,8 +58,15 @@ void Watchdog::loop() {
                     std::cout << "[Watchdog] " << id << " 재시작 예약 ("
                               << rec.retry_count << "/" << policy.max_retries << ")\n";
                     to_restart.push_back({profile, policy.retry_delay_ms});
+                } else if (policy.action_on_failure == "RESTART") {
+                    // 크리티컬 프로세스: retry_count 리셋 후 무한 재시도
+                    rec.retry_count = 1;
+                    std::cout << "[Watchdog] " << id << " 최대 재시도 초과 → RESTART 정책으로 계속 재시도\n";
+                    to_restart.push_back({profile, policy.retry_delay_ms});
                 } else {
-                    std::cerr << "[Watchdog] " << id << " 최대 재시도 초과 → Disabled\n";
+                    // DISABLE_FLAG (기본값): 재시작 포기
+                    std::cerr << "[Watchdog] " << id << " 최대 재시도 초과 → "
+                              << policy.action_on_failure << "\n";
                     rec.state = ProcessState::Disabled;
                 }
             }

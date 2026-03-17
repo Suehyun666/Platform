@@ -23,7 +23,7 @@ public:
     void setKilled(bool value);
 
     // App 쪽에서 호출. 반환된 포인터는 호출자가 munmap 해야 함.
-    static FeatureControlState* openForRead(const std::string& feature_id);
+    static FeatureControlState* connect(const std::string& feature_id);
 
 private:
     std::string          feature_id_;

@@ -44,7 +44,7 @@ void ShmManager::setKilled(bool value) {
     if (ptr_) ptr_->is_killed.store(value, std::memory_order_relaxed);
 }
 
-FeatureControlState* ShmManager::openForRead(const std::string& feature_id) {
+FeatureControlState* ShmManager::connect(const std::string& feature_id) {
     const std::string name = shmName(feature_id);
     int fd = shm_open(name.c_str(), O_RDWR, 0666);
     if (fd < 0) return nullptr;
