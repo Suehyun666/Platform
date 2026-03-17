@@ -1,0 +1,22 @@
+[
+  {
+    "feature_id": "adas",
+    "binary_path": "application/bin/adas",
+    "flag": true,
+    "restart_policy": {
+      "max_retries": 3,
+      "retry_delay_ms": 1000,
+      "action_on_failure": "DISABLE_FLAG"
+    }
+  },
+  {
+    "feature_id": "navigation",
+    "binary_path": "application/bin/navigation",
+    "flag": false,
+    "restart_policy": {
+      "max_retries": 3,
+      "retry_delay_ms": 1000,
+      "action_on_failure": "DISABLE_FLAG"
+    }
+  }
+]
