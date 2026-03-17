@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <chrono>
+#include <thread>
 #include <vector>
 
 ProcessSupervisor::ProcessSupervisor()
@@ -43,10 +44,7 @@ SupervisorError ProcessSupervisor::launchLocked(const ProcessProfile& profile) {
     }
 
     // hardKill 후 재기동 시 is_killed 초기화
-    for (const auto& f : profile.features) {
-        auto s_it = shm_slots_.find(f.feature_id);
-        if (s_it != shm_slots_.end()) s_it->second->setKilled(false);
-    }
+    setAllShmKilled(profile.process_id, false);
 
     pid_t pid = fork();
     if (pid < 0) {
@@ -84,4 +82,22 @@ SupervisorError ProcessSupervisor::launchLocked(const ProcessProfile& profile) {
 bool ProcessSupervisor::isAliveLocked(const std::string& process_id) const {
     auto it = registry_.find(process_id);
     return it != registry_.end() && it->second.pid > 0 && ::kill(it->second.pid, 0) == 0;
+}
+
+void ProcessSupervisor::setAllShmKilled(const std::string& process_id, bool value) {
+    auto p_it = all_profiles_.find(process_id);
+    if (p_it == all_profiles_.end()) return;
+    for (const auto& f : p_it->second.features) {
+        auto s_it = shm_slots_.find(f.feature_id);
+        if (s_it != shm_slots_.end()) s_it->second->setKilled(value);
+    }
+}
+
+bool ProcessSupervisor::waitForExit(pid_t pid, int timeout_ms) {
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (waitpid(pid, nullptr, WNOHANG) > 0) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    return false;
 }

@@ -42,11 +42,13 @@ int SdvAppFrame::run(int argc, char* argv[]) {
         }
     }
 
+    auto& registry = FeatureRegistry::instance();
+
     // onStart: SHM 연결 성공한 피처만 대상 (연결 실패 피처는 호출하지 않음)
     std::vector<std::string> connected;
     for (const auto& [name, _] : slots_) {
         connected.push_back(name);
-        if (auto* feat = FeatureRegistry::instance().get(name)) feat->onStart();
+        if (auto* feat = registry.get(name)) feat->onStart();
     }
     onStart(connected);  // fallback (SDV_FEATURE 미사용 앱용)
 
@@ -62,7 +64,7 @@ int SdvAppFrame::run(int argc, char* argv[]) {
             if (shm->is_enabled.load(std::memory_order_relaxed)) {
                 any_enabled = true;
                 shm->heartbeat.fetch_add(1, std::memory_order_relaxed);
-                if (auto* feat = FeatureRegistry::instance().get(name)) feat->onUpdate();
+                if (auto* feat = registry.get(name)) feat->onUpdate();
                 else onUpdate(name);  // fallback
             }
         }
@@ -74,7 +76,7 @@ int SdvAppFrame::run(int argc, char* argv[]) {
 
     // 피처별 onStop: 등록된 피처 → IFeature::onStop(), 미등록 → fallback
     for (const auto& [name, ptr] : slots_) {
-        if (auto* feat = FeatureRegistry::instance().get(name)) feat->onStop();
+        if (auto* feat = registry.get(name)) feat->onStop();
     }
     onStop();  // fallback
     for (auto& [name, ptr] : slots_)

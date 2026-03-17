@@ -20,27 +20,16 @@ SupervisorError ProcessSupervisor::gracefulKill(const std::string& process_id, i
         rec.state = ProcessState::Stopping;
         pid = rec.pid;
 
-        // SHM kill switch + SIGTERM 동시 설정
-        auto p_it = all_profiles_.find(process_id);
-        if (p_it != all_profiles_.end()) {
-            for (const auto& f : p_it->second.features) {
-                auto s_it = shm_slots_.find(f.feature_id);
-                if (s_it != shm_slots_.end()) s_it->second->setKilled(true);
-            }
-        }
+        setAllShmKilled(process_id, true);  // SHM kill switch + SIGTERM 동시 전달
     }
     std::cout << "[Supervisor] SIGTERM → " << process_id << " (pid=" << pid << ")\n";
     ::kill(pid, SIGTERM);
 
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-    while (std::chrono::steady_clock::now() < deadline) {
-        if (waitpid(pid, nullptr, WNOHANG) > 0) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            registry_.erase(process_id);
-            std::cout << "[Supervisor] 정상 종료: " << process_id << "\n";
-            return SupervisorError::Ok;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    if (waitForExit(pid, timeout_ms)) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        registry_.erase(process_id);
+        std::cout << "[Supervisor] 정상 종료: " << process_id << "\n";
+        return SupervisorError::Ok;
     }
 
     std::cerr << "[Supervisor] timeout → SIGKILL: " << process_id << "\n";
@@ -56,25 +45,14 @@ SupervisorError ProcessSupervisor::hardKill(const std::string& process_id) {
         it->second.state = ProcessState::Disabled;
         pid = it->second.pid;
 
-        // SHM kill switch → 앱이 onStop() 후 자발적 종료 기회
-        auto p_it = all_profiles_.find(process_id);
-        if (p_it != all_profiles_.end()) {
-            for (const auto& f : p_it->second.features) {
-                auto s_it = shm_slots_.find(f.feature_id);
-                if (s_it != shm_slots_.end()) s_it->second->setKilled(true);
-            }
-        }
+        setAllShmKilled(process_id, true);  // SHM kill switch → 앱이 onStop() 후 자발적 종료 기회
     }
 
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
-    while (std::chrono::steady_clock::now() < deadline) {
-        if (waitpid(pid, nullptr, WNOHANG) > 0) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            registry_.erase(process_id);
-            std::cout << "[Supervisor] Kill Switch 종료: " << process_id << "\n";
-            return SupervisorError::Ok;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    if (waitForExit(pid, 200)) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        registry_.erase(process_id);
+        std::cout << "[Supervisor] Kill Switch 종료: " << process_id << "\n";
+        return SupervisorError::Ok;
     }
 
     ::kill(pid, SIGKILL);

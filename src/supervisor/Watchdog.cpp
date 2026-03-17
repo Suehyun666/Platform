@@ -24,7 +24,8 @@ void Watchdog::loop() {
     while (running_) {
         std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
 
-        std::vector<std::pair<ProcessProfile, int>> to_restart;
+        // ProcessProfile 전체 복사 대신 process_id + delay_ms만 저장
+        std::vector<std::pair<std::string, int>> to_restart;
 
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -45,7 +46,9 @@ void Watchdog::loop() {
                 }
 
                 // 모든 피처가 OFF면 자율 종료가 의도된 동작 → 재시작하지 않음
-                const auto& profile = all_profiles_.at(id);
+                auto p_it = all_profiles_.find(id);
+                if (p_it == all_profiles_.end()) continue;  // 등록 해제된 프로세스
+                const auto& profile = p_it->second;
                 if (!profile.hasAnyEnabledFeature()) {
                     std::cout << "[Watchdog] " << id << " 피처 전부 OFF → 재시작 안 함\n";
                     rec.state = ProcessState::Disabled;
@@ -57,24 +60,24 @@ void Watchdog::loop() {
                     rec.retry_count++;
                     std::cout << "[Watchdog] " << id << " 재시작 예약 ("
                               << rec.retry_count << "/" << policy.max_retries << ")\n";
-                    to_restart.push_back({profile, policy.retry_delay_ms});
-                } else if (policy.action_on_failure == "RESTART") {
+                    to_restart.push_back({id, policy.retry_delay_ms});
+                } else if (policy.action_on_failure == FailureAction::Restart) {
                     // 크리티컬 프로세스: retry_count 리셋 후 무한 재시도
                     rec.retry_count = 1;
                     std::cout << "[Watchdog] " << id << " 최대 재시도 초과 → RESTART 정책으로 계속 재시도\n";
-                    to_restart.push_back({profile, policy.retry_delay_ms});
+                    to_restart.push_back({id, policy.retry_delay_ms});
                 } else {
-                    // DISABLE_FLAG (기본값): 재시작 포기
-                    std::cerr << "[Watchdog] " << id << " 최대 재시도 초과 → "
-                              << policy.action_on_failure << "\n";
+                    // DisableFlag (기본값): 재시작 포기
+                    std::cerr << "[Watchdog] " << id << " 최대 재시도 초과 → DISABLE_FLAG\n";
                     rec.state = ProcessState::Disabled;
                 }
             }
         }
 
-        for (const auto& [profile, delay_ms] : to_restart) {
+        for (const auto& [proc_id, delay_ms] : to_restart) {
             std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
-            restart_cb_(profile);
+            auto it = all_profiles_.find(proc_id);
+            if (it != all_profiles_.end()) restart_cb_(it->second);
         }
     }
 }

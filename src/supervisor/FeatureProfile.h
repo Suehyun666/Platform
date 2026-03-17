@@ -3,10 +3,15 @@
 #include <vector>
 #include <algorithm>
 
+enum class FailureAction {
+    DisableFlag,  // 재시작 포기 (기본값)
+    Restart,      // 무한 재시도 (크리티컬 프로세스용)
+};
+
 struct RestartPolicy {
-    int max_retries     = 3;
-    int retry_delay_ms  = 1000;
-    std::string action_on_failure = "DISABLE_FLAG";
+    int           max_retries       = 3;
+    int           retry_delay_ms    = 1000;
+    FailureAction action_on_failure = FailureAction::DisableFlag;
 };
 
 // 프로세스 내부의 개별 피처

@@ -17,7 +17,9 @@ SupervisorError ProcessSupervisor::setFeatureFlag(const std::string& process_id,
     if (!found) return SupervisorError::NotFound;
 
     // 3. SHM 반영 (앱이 다음 루프에서 읽음)
-    shm_slots_.at(feature_id)->setEnabled(value);
+    auto s_it = shm_slots_.find(feature_id);
+    if (s_it == shm_slots_.end()) return SupervisorError::NotFound;
+    s_it->second->setEnabled(value);
 
     std::cout << "[Supervisor] 피처 " << feature_id << " → " << (value ? "ON" : "OFF") << "\n";
 

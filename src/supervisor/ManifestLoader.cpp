@@ -20,9 +20,12 @@ static ProcessProfile parseProfile(const json& item, bool& ok) {
 
     if (item.contains("restart_policy")) {
         const auto& rp             = item["restart_policy"];
-        p.restart_policy.max_retries       = rp.value("max_retries", 3);
-        p.restart_policy.retry_delay_ms    = rp.value("retry_delay_ms", 1000);
-        p.restart_policy.action_on_failure = rp.value("action_on_failure", "DISABLE_FLAG");
+        p.restart_policy.max_retries    = rp.value("max_retries", 3);
+        p.restart_policy.retry_delay_ms = rp.value("retry_delay_ms", 1000);
+        p.restart_policy.action_on_failure =
+            rp.value("action_on_failure", std::string("DISABLE_FLAG")) == "RESTART"
+                ? FailureAction::Restart
+                : FailureAction::DisableFlag;
     }
 
     if (item.contains("features") && item["features"].is_array()) {
