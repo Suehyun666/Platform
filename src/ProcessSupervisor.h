@@ -1,4 +1,5 @@
 #pragma once
+#include "FeatureProfile.h"
 #include "ProcessRecord.h"
 #include "ShmManager.h"
 #include "Watchdog.h"

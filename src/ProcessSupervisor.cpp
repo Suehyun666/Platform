@@ -8,12 +8,15 @@
 #include <vector>
 
 ProcessSupervisor::ProcessSupervisor()
-    : watchdog_(registry_, mutex_, [this](const ProcessProfile& p) { launch(p); })
+    : watchdog_(registry_, all_profiles_, mutex_, [this](const ProcessProfile& p) { launch(p); })
 {}
 
 void ProcessSupervisor::registerProfile(const ProcessProfile& profile) {
     std::lock_guard<std::mutex> lock(mutex_);
     all_profiles_[profile.process_id] = profile;
+    // SHM 수명 = feature 등록 수명. 프로세스 재시작과 무관하게 유지.
+    for (const auto& f : profile.features)
+        shm_slots_[f.feature_id] = std::make_unique<ShmManager>(f.feature_id, f.flag);
 }
 
 ProcessSupervisor::~ProcessSupervisor() {
@@ -38,13 +41,8 @@ SupervisorError ProcessSupervisor::launchLocked(const ProcessProfile& profile) {
         return SupervisorError::AlreadyRunning;
     }
 
-    // SHM은 fork 전에 생성해야 자식 프로세스가 즉시 열 수 있다
-    for (const auto& f : profile.features)
-        shm_slots_[f.feature_id] = std::make_unique<ShmManager>(f.feature_id, f.flag);
-
     pid_t pid = fork();
     if (pid < 0) {
-        for (const auto& f : profile.features) shm_slots_.erase(f.feature_id);
         std::cerr << "[Supervisor] fork 실패\n";
         return SupervisorError::ForkFailed;
     }
@@ -66,7 +64,6 @@ SupervisorError ProcessSupervisor::launchLocked(const ProcessProfile& profile) {
 
     auto& rec           = registry_[profile.process_id];
     rec.pid             = pid;
-    rec.profile         = profile;
     rec.state           = ProcessState::Running;
     rec.retry_count     = 0;
     rec.last_started_at = std::chrono::steady_clock::now();

@@ -1,5 +1,6 @@
 #pragma once
 #include "ProcessRecord.h"
+#include "FeatureProfile.h"
 #include <functional>
 #include <thread>
 #include <atomic>
@@ -11,6 +12,7 @@ public:
     using RestartFn = std::function<void(const ProcessProfile&)>;
 
     Watchdog(std::unordered_map<std::string, ProcessRecord>& registry,
+             std::unordered_map<std::string, ProcessProfile>& all_profiles,
              std::mutex& mutex,
              RestartFn restart_cb);
     ~Watchdog();
@@ -21,7 +23,8 @@ public:
 private:
     void loop();
 
-    std::unordered_map<std::string, ProcessRecord>& registry_;
+    std::unordered_map<std::string, ProcessRecord>&  registry_;
+    std::unordered_map<std::string, ProcessProfile>& all_profiles_;
     std::mutex& mutex_;
     RestartFn   restart_cb_;
     std::thread thread_;

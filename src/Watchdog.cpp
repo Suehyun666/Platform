@@ -6,8 +6,9 @@
 #include <thread>
 
 Watchdog::Watchdog(std::unordered_map<std::string, ProcessRecord>& registry,
+                   std::unordered_map<std::string, ProcessProfile>& all_profiles,
                    std::mutex& mutex, RestartFn restart_cb)
-    : registry_(registry), mutex_(mutex), restart_cb_(std::move(restart_cb))
+    : registry_(registry), all_profiles_(all_profiles), mutex_(mutex), restart_cb_(std::move(restart_cb))
 {
     thread_ = std::thread(&Watchdog::loop, this);
 }
@@ -42,18 +43,19 @@ void Watchdog::loop() {
                 }
 
                 // 모든 피처가 OFF면 자율 종료가 의도된 동작 → 재시작하지 않음
-                if (!rec.profile.hasAnyEnabledFeature()) {
+                const auto& profile = all_profiles_.at(id);
+                if (!profile.hasAnyEnabledFeature()) {
                     std::cout << "[Watchdog] " << id << " 피처 전부 OFF → 재시작 안 함\n";
                     rec.state = ProcessState::Disabled;
                     continue;
                 }
 
-                const auto& policy = rec.profile.restart_policy;
+                const auto& policy = profile.restart_policy;
                 if (rec.retry_count < policy.max_retries) {
                     rec.retry_count++;
                     std::cout << "[Watchdog] " << id << " 재시작 예약 ("
                               << rec.retry_count << "/" << policy.max_retries << ")\n";
-                    to_restart.push_back({rec.profile, policy.retry_delay_ms});
+                    to_restart.push_back({profile, policy.retry_delay_ms});
                 } else {
                     std::cerr << "[Watchdog] " << id << " 최대 재시도 초과 → Disabled\n";
                     rec.state = ProcessState::Disabled;

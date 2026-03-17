@@ -10,29 +10,21 @@ SupervisorError ProcessSupervisor::setFeatureFlag(const std::string& process_id,
     auto p_it = all_profiles_.find(process_id);
     if (p_it == all_profiles_.end()) return SupervisorError::NotFound;
 
-    // 2. all_profiles_의 flag 업데이트
+    // 2. all_profiles_ flag 업데이트 (단일 소스)
     bool found = false;
     for (auto& f : p_it->second.features) {
         if (f.feature_id == feature_id) { f.flag = value; found = true; break; }
     }
     if (!found) return SupervisorError::NotFound;
 
-    // 3. registry_ 내 profile도 동기화 (재시작 시 최신 flag 반영)
-    auto r_it = registry_.find(process_id);
-    if (r_it != registry_.end()) {
-        for (auto& f : r_it->second.profile.features)
-            if (f.feature_id == feature_id) { f.flag = value; break; }
-    }
-
-    // 4. 실행 중이면 SHM으로 즉시 전달
-    auto s_it = shm_slots_.find(feature_id);
-    if (s_it != shm_slots_.end()) s_it->second->setEnabled(value);
+    // 3. SHM 반영 (앱이 다음 루프에서 읽음)
+    shm_slots_.at(feature_id)->setEnabled(value);
 
     std::cout << "[Supervisor] 피처 " << feature_id << " → " << (value ? "ON" : "OFF") << "\n";
 
-    // 5. 피처를 켰는데 프로세스가 없거나 죽어있으면 자동 기동
+    // 4. 피처를 켰는데 프로세스가 없거나 죽어있으면 자동 기동
     if (value && !isAliveLocked(process_id)) {
-        // Disabled 상태면 retry_count 초기화 후 재기동
+        auto r_it = registry_.find(process_id);
         if (r_it != registry_.end()) r_it->second.retry_count = 0;
         std::cout << "[Supervisor] 프로세스 자동 기동: " << process_id << "\n";
         launchLocked(p_it->second);
