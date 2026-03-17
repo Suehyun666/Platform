@@ -12,10 +12,11 @@ int main() {
 
     ProcessSupervisor supervisor;
     for (const auto& p : *profiles) {
+        supervisor.registerProfile(p);  // 항상 등록 → set 명령어로 자동 기동 가능
         if (p.hasAnyEnabledFeature()) {
             supervisor.launch(p);
         } else {
-            std::cout << "[Platform] skip: " << p.process_id << " (모든 피처 OFF)\n";
+            std::cout << "[Platform] 대기: " << p.process_id << " (모든 피처 OFF, 피처 ON 시 자동 기동)\n";
         }
     }
 

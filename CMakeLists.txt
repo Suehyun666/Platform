@@ -18,6 +18,7 @@ add_executable(Platform
     src/ManifestLoader.cpp
     src/ProcessSupervisor.cpp
     src/ProcessSupervisorKill.cpp
+    src/ProcessSupervisorFeature.cpp
     src/ShmManager.cpp
     src/Watchdog.cpp
 )

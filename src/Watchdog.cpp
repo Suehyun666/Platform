@@ -41,6 +41,13 @@ void Watchdog::loop() {
                     std::cout << "[Watchdog] " << id << " 안정 실행 감지 → retry_count 초기화\n";
                 }
 
+                // 모든 피처가 OFF면 자율 종료가 의도된 동작 → 재시작하지 않음
+                if (!rec.profile.hasAnyEnabledFeature()) {
+                    std::cout << "[Watchdog] " << id << " 피처 전부 OFF → 재시작 안 함\n";
+                    rec.state = ProcessState::Disabled;
+                    continue;
+                }
+
                 const auto& policy = rec.profile.restart_policy;
                 if (rec.retry_count < policy.max_retries) {
                     rec.retry_count++;

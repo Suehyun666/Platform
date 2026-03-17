@@ -45,6 +45,7 @@ int SdvAppFrame::run(int argc, char* argv[]) {
 
     bool killed = false;
     while (running_ && !killed) {
+        bool any_enabled = false;
         for (auto& [name, shm] : slots_) {
             if (shm->is_killed.load(std::memory_order_relaxed)) {
                 std::cout << "[SDK] Kill Switch: " << name << "\n";
@@ -52,12 +53,16 @@ int SdvAppFrame::run(int argc, char* argv[]) {
                 break;
             }
             if (shm->is_enabled.load(std::memory_order_relaxed)) {
+                any_enabled = true;
                 shm->heartbeat.fetch_add(1, std::memory_order_relaxed);
                 onUpdate(name);
             }
         }
-        if (!killed)
+        if (!killed) {
+            // 모든 피처가 OFF되면 스스로 종료 (Supervisor가 자동 재기동)
+            if (!any_enabled && !slots_.empty()) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(loop_interval_ms_));
+        }
     }
 
     onStop();

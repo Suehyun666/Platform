@@ -11,6 +11,11 @@ ProcessSupervisor::ProcessSupervisor()
     : watchdog_(registry_, mutex_, [this](const ProcessProfile& p) { launch(p); })
 {}
 
+void ProcessSupervisor::registerProfile(const ProcessProfile& profile) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    all_profiles_[profile.process_id] = profile;
+}
+
 ProcessSupervisor::~ProcessSupervisor() {
     std::lock_guard<std::mutex> lock(mutex_);
     for (auto& [id, rec] : registry_) {
@@ -52,7 +57,8 @@ SupervisorError ProcessSupervisor::launchLocked(const ProcessProfile& profile) {
         // manifest의 loop_interval_ms를 --loop-ms=N 형태로 전달 (앱 기본값 override)
         std::string loop_arg = "--loop-ms=" + std::to_string(profile.loop_interval_ms);
         std::vector<const char*> argv = {profile.binary_path.c_str(), loop_arg.c_str()};
-        for (const auto& f : profile.features) if (f.flag) argv.push_back(f.feature_id.c_str());
+        // flag 여부와 무관하게 모든 피처 ID 전달 → 앱이 SHM을 처음부터 연결해둠
+        for (const auto& f : profile.features) argv.push_back(f.feature_id.c_str());
         argv.push_back(nullptr);
         execvp(argv[0], const_cast<char**>(argv.data()));
         _exit(EXIT_FAILURE);
@@ -62,6 +68,7 @@ SupervisorError ProcessSupervisor::launchLocked(const ProcessProfile& profile) {
     rec.pid             = pid;
     rec.profile         = profile;
     rec.state           = ProcessState::Running;
+    rec.retry_count     = 0;
     rec.last_started_at = std::chrono::steady_clock::now();
 
     std::cout << "[Supervisor] 실행: " << profile.process_id << " (pid=" << pid << ")\n  활성 피처: ";
@@ -70,35 +77,7 @@ SupervisorError ProcessSupervisor::launchLocked(const ProcessProfile& profile) {
     return SupervisorError::Ok;
 }
 
-SupervisorError ProcessSupervisor::setFeatureFlag(const std::string& /*process_id*/,
-                                                   const std::string& feature_id, bool value) {
-    auto it = shm_slots_.find(feature_id);
-    if (it == shm_slots_.end()) return SupervisorError::NotFound;
-    it->second->setEnabled(value);
-    std::cout << "[Supervisor] 피처 " << feature_id << " → " << (value ? "ON" : "OFF") << "\n";
-    return SupervisorError::Ok;
-}
-
-bool ProcessSupervisor::isAlive(const std::string& process_id) const {
-    std::lock_guard<std::mutex> lock(mutex_);
+bool ProcessSupervisor::isAliveLocked(const std::string& process_id) const {
     auto it = registry_.find(process_id);
     return it != registry_.end() && it->second.pid > 0 && ::kill(it->second.pid, 0) == 0;
-}
-
-void ProcessSupervisor::listAll() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (registry_.empty()) { std::cout << "[Supervisor] 실행 중인 프로세스 없음\n"; return; }
-    std::cout << "[Supervisor] 실행 목록:\n";
-    for (const auto& [id, rec] : registry_) {
-        const char* s = rec.state == ProcessState::Running  ? "Running"  :
-                        rec.state == ProcessState::Stopping ? "Stopping" : "Disabled";
-        bool alive = rec.pid > 0 && ::kill(rec.pid, 0) == 0;
-        std::cout << "  [" << s << "] " << id << "  pid=" << rec.pid
-                  << "  " << (alive ? "alive" : "dead")
-                  << "  retries=" << rec.retry_count << "/" << rec.profile.restart_policy.max_retries << "\n"
-                  << "    features: ";
-        for (const auto& f : rec.profile.features)
-            std::cout << f.feature_id << "=" << (f.flag ? "ON" : "OFF") << " ";
-        std::cout << "\n";
-    }
 }
