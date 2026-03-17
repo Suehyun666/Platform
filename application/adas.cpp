@@ -3,37 +3,50 @@
 #include <thread>
 #include <csignal>
 #include <unistd.h>
+#include <sys/mman.h>
 #include <vector>
 #include <string>
+#include "ShmManager.h"
 
 static volatile sig_atomic_t g_running = 1;
-
-static void onSignal(int) {
-    g_running = 0;
-}
+static void onSignal(int) { g_running = 0; }
 
 int main(int argc, char* argv[]) {
     signal(SIGTERM, onSignal);
     signal(SIGINT,  onSignal);
 
-    // argv[1..] 에 활성화된 피처 ID가 전달됨
-    std::vector<std::string> features;
+    // SHM 연결: argv[1..] 에 활성 피처 ID가 전달됨
+    std::vector<std::pair<std::string, FeatureControlState*>> features;
     for (int i = 1; i < argc; ++i) {
-        features.emplace_back(argv[i]);
+        auto* ptr = ShmManager::openForRead(argv[i]);
+        if (ptr) {
+            features.push_back({argv[i], ptr});
+        } else {
+            std::cerr << "[ADAS] SHM 연결 실패: " << argv[i] << "\n";
+        }
     }
 
     std::cout << "[ADAS] 시작 (pid=" << getpid() << ")\n";
-    std::cout << "[ADAS] 활성 피처: ";
-    for (const auto& f : features) std::cout << f << " ";
-    std::cout << "\n";
 
     while (g_running) {
-        for (const auto& f : features) {
-            std::cout << "[ADAS/" << f << "] 동작 중...\n";
+        for (auto& [name, shm] : features) {
+            // Kill Switch 최우선
+            if (shm->is_killed.load(std::memory_order_relaxed)) {
+                std::cout << "[ADAS/" << name << "] Kill Switch 활성 → 중단\n";
+                continue;
+            }
+            if (!shm->is_enabled.load(std::memory_order_relaxed)) continue;
+
+            std::cout << "[ADAS/" << name << "] 동작 중...\n";
+            shm->heartbeat.fetch_add(1, std::memory_order_relaxed);
         }
         std::cout.flush();
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
+
+    for (auto& [name, ptr] : features)
+        munmap(ptr, sizeof(FeatureControlState));
+
     std::cout << "[ADAS] SIGTERM 수신 → 정상 종료\n";
     return 0;
 }
