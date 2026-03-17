@@ -80,6 +80,7 @@ ls application/bin/
 {
   "process_id": "navigation",
   "binary_path": "application/bin/navigation",
+  "loop_interval_ms": 500,
   "restart_policy": {
     "max_retries": 3,
     "retry_delay_ms": 1000,
@@ -97,6 +98,7 @@ ls application/bin/
 | `process_id` | 프로세스 식별자. CLI 명령어에서 `<id>`로 사용 |
 | `binary_path` | 실행할 바이너리 경로 (프로젝트 루트 기준 상대경로) |
 | `features[].flag` | `true`인 피처가 하나라도 있으면 프로세스 실행 |
+| `loop_interval_ms` | 앱 SDK의 메인 루프 주기 (ms). 생략 시 앱 생성자 기본값 사용 |
 | `max_retries` | watchdog 자동 재시작 최대 횟수 |
 | `retry_delay_ms` | 재시작 전 대기 시간 (ms) |
 | `action_on_failure` | `max_retries` 초과 시 동작. 현재: `DISABLE_FLAG` |
