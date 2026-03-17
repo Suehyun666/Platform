@@ -14,13 +14,17 @@ FetchContent_MakeAvailable(nlohmann_json)
 
 # ── Platform (Supervisor) ────────────────────────────────────────────────────
 add_executable(Platform
-    src/main.cpp
-    src/ManifestLoader.cpp
-    src/ProcessSupervisor.cpp
-    src/ProcessSupervisorKill.cpp
-    src/ProcessSupervisorFeature.cpp
-    src/ShmManager.cpp
-    src/Watchdog.cpp
+    src/supervisor/main.cpp
+    src/supervisor/ManifestLoader.cpp
+    src/supervisor/ProcessSupervisor.cpp
+    src/supervisor/ProcessSupervisorKill.cpp
+    src/supervisor/ProcessSupervisorFeature.cpp
+    src/supervisor/Watchdog.cpp
+    src/sdk/ShmManager.cpp
+)
+target_include_directories(Platform PRIVATE
+    src/supervisor
+    src/sdk
 )
 target_link_libraries(Platform PRIVATE nlohmann_json::nlohmann_json rt)
 
@@ -32,10 +36,10 @@ add_custom_command(TARGET Platform POST_BUILD
 
 # ── SDK 라이브러리 (앱들이 링크함) ─────────────────────────────────────────
 add_library(sdv_sdk STATIC
-    src/SdvAppFrame.cpp
-    src/ShmManager.cpp
+    src/sdk/SdvAppFrame.cpp
+    src/sdk/ShmManager.cpp
 )
-target_include_directories(sdv_sdk PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(sdv_sdk PUBLIC src/sdk)
 target_link_libraries(sdv_sdk PUBLIC rt)
 
 # ── 앱 바이너리 ─────────────────────────────────────────────────────────────

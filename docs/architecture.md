@@ -1,108 +1,128 @@
-# Architecture
+# 아키텍처
 
-## 전체 컴포넌트 구조 (현재)
+---
+
+## 디렉토리 구조
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Platform (main)                        │
-│                                                             │
-│  manifest.json ──► ManifestLoader ──► ProcessProfile        │
-│                                            │                │
-│                                     ProcessSupervisor       │
-│                                     ├── registry_           │
-│                                     │   (ProcessState 기반) │
-│                                     └── watchdog 스레드     │◄── 500ms 주기
-└─────────────────────────────────────────────────────────────┘
-         │ fork/execvp + argv(활성 피처 목록)
-         ├──────────────────────┐
-         ▼                      ▼
-  [adas 프로세스]        [navigation 프로세스]
-  argv: collision_avoidance   argv: route_guidance
-        blind_spot_detection
-  SIGTERM 핸들러              SIGTERM 핸들러
+Platform/
+├── src/
+│   ├── supervisor/          ← Platform 프로세스 전용
+│   │   ├── main.cpp             진입점, CLI 루프
+│   │   ├── ManifestLoader.h/cpp manifest.json 파싱
+│   │   ├── FeatureProfile.h     ProcessProfile, FeatureFlag, RestartPolicy 타입
+│   │   ├── ProcessRecord.h      런타임 프로세스 상태 (pid, retry_count, state)
+│   │   ├── ProcessSupervisor.h/cpp   launch / registerProfile / isAlive / listAll
+│   │   ├── ProcessSupervisorKill.cpp gracefulKill / hardKill
+│   │   ├── ProcessSupervisorFeature.cpp setFeatureFlag
+│   │   └── Watchdog.h/cpp       크래시 감지 및 자동 재시작 스레드
+│   └── sdk/                 ← sdv_sdk 정적 라이브러리 (앱이 링크)
+│       ├── ShmManager.h/cpp     POSIX SHM 생성·연결 (supervisor·SDK 공유)
+│       └── SdvAppFrame.h/cpp    앱 베이스 클래스 (onStart / onUpdate / onStop)
+├── application/             ← 앱 바이너리 소스
+│   ├── adas.cpp
+│   ├── navigation.cpp
+│   └── bin/                 빌드 결과물 출력 디렉토리
+├── docs/                    문서
+├── manifest.json            프로세스·피처 선언
+└── CMakeLists.txt
 ```
 
 ---
 
-## 전체 컴포넌트 구조 (Phase 2 - SHM 연동 후)
+## 컴포넌트 구조
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Platform (main)                        │
-│                                                             │
-│  manifest.json ──► ManifestLoader ──► ProcessProfile        │
-│                                            │                │
-│                                     ProcessSupervisor       │
-│                                     ├── registry_           │
-│                                     ├── ShmManager          │◄── SHM 생성/관리
-│                                     └── watchdog 스레드     │
-└─────────────────────────────────────────────────────────────┘
-         │ fork/execvp                  │ SHM write (setFeatureFlag)
-         ├─────────────────┐            │
-         ▼                 ▼            ▼
-  [adas 프로세스]   [navigation 프로세스]
-  SHM 읽기          SHM 읽기
-  ├ collision_avoidance: is_enabled, is_killed
-  └ blind_spot_detection: is_enabled, is_killed
-
-  ※ 프로세스를 죽이지 않고 피처 단위 ON/OFF 가능
+┌──────────────────────────────────────────────────────────────────┐
+│                        Platform (Supervisor)                     │
+│                                                                  │
+│  manifest.json ─► ManifestLoader ─► ProcessProfile              │
+│                                           │                      │
+│                                    ProcessSupervisor             │
+│                                    ├── all_profiles_  (등록 전체) │
+│                                    ├── registry_      (런타임 상태)│
+│                                    ├── shm_slots_     (SHM 소유)  │
+│                                    └── Watchdog       500ms 주기  │
+└──────────────────────────────────────────────────────────────────┘
+         │ fork/execvp                  │ SHM write (setFeatureFlag/kill)
+         │ argv: feature_ids +          │
+         │       --loop-ms=N            │
+         ▼                              ▼
+  [adas 프로세스]              /dev/shm/platform_<feature_id>
+  sdv_sdk 링크                 FeatureControlState {
+  SdvAppFrame::run()             atomic<bool> is_enabled
+  ├── ShmManager::connect()      atomic<bool> is_killed
+  └── 루프: SHM 읽기            atomic<uint64_t> heartbeat
+                               }
 ```
 
 ---
 
-## 핵심 구조체
+## 핵심 타입
 
-### ProcessProfile (FeatureProfile.h)
+### ProcessProfile (`FeatureProfile.h`)
+
 ```
 ProcessProfile
-├── process_id       : 프로세스 식별자 (ex. "navigation")
+├── process_id       : "adas", "navigation" 등
 ├── binary_path      : 실행 바이너리 경로
-├── restart_policy   : max_retries, retry_delay_ms, action_on_failure
-└── features[]       : FeatureFlag 배열
+├── loop_interval_ms : SDK 메인 루프 주기 (manifest → argv로 주입)
+├── restart_policy
+│   ├── max_retries       : 최대 자동 재시작 횟수
+│   ├── retry_delay_ms    : 재시작 전 대기 시간
+│   └── action_on_failure : "DISABLE_FLAG" | "RESTART"
+└── features[]
         └── FeatureFlag
-            ├── feature_id : 피처 식별자 (ex. "route_guidance")
-            └── flag       : 활성 여부 (부팅 시 기준)
+            ├── feature_id : "collision_avoidance" 등
+            └── flag       : 부팅 시 초기 활성 여부
 ```
 
-### ProcessState (ProcessSupervisor.h)
+### ProcessState (`ProcessRecord.h`)
+
+| 상태 | 의미 | Watchdog 재시작 |
+|------|------|----------------|
+| `Running` | 정상 실행 중 | 대상 |
+| `Stopping` | gracefulKill 요청, SIGTERM 대기 중 | 차단 |
+| `Disabled` | kill 완료 또는 max_retries 초과 | 차단 |
+
+### FeatureControlState (`ShmManager.h`)
+
 ```
-Running   → 정상 실행 중, watchdog 재시작 대상
-Stopping  → gracefulKill 요청 후 SIGTERM 대기 중 (watchdog 재시작 안 함)
-Disabled  → max_retries 초과 또는 kill 완료 (재시작 안 함)
+/dev/shm/platform_<feature_id>  (피처 1개당 SHM 1개)
+
+is_killed  > is_enabled  (우선순위)
+is_killed  = true  → onStop() 즉시 호출 후 종료
+is_enabled = false → 해당 피처 onUpdate() 실행 안 함 (프로세스는 유지)
+heartbeat         → onUpdate() 마다 +1 (생존 확인용)
 ```
 
 ---
 
-## 1. 부트 시퀀스
+## 부트 시퀀스
 
 ```
 main()
   │
   ├─ ManifestLoader::load("manifest.json")
-  │     ├─ JSON 파싱
-  │     ├─ 각 항목 → ProcessProfile 변환
-  │     │     ├─ process_id, binary_path, restart_policy
-  │     │     └─ features[] 파싱 (feature_id + flag)
-  │     └─ optional<vector<ProcessProfile>> 반환
-  │
-  ├─ [로드 실패 시] → EXIT_FAILURE
+  │     └─ ProcessProfile 배열 반환 (실패 시 EXIT_FAILURE)
   │
   ├─ ProcessSupervisor 생성
-  │     └─ watchdog 스레드 시작 (백그라운드, 500ms 주기)
+  │     └─ Watchdog 스레드 시작 (500ms 주기)
   │
   ├─ 각 ProcessProfile 순회
-  │     ├─ hasAnyEnabledFeature() == true  → supervisor.launch(profile)
-  │     │     └─ 활성 피처 ID를 argv로 전달: ./binary feature1 feature2 ...
-  │     └─ hasAnyEnabledFeature() == false → skip 로그 출력
+  │     ├─ registerProfile(p)        ← 항상 등록 (SHM 생성 포함)
+  │     └─ hasAnyEnabledFeature()?
+  │           true  → launch(p)      ← fork/execvp
+  │           false → 대기 로그 출력  (set 명령으로 나중에 기동 가능)
   │
-  └─ CLI 루프 진입 (stdin 대기)
+  └─ CLI 루프 (stdin 대기)
 ```
 
 ---
 
-## 2. 시퀀스 다이어그램
+## 시퀀스 다이어그램
 
-### 2-1. 부트 / 프로세스 실행 (launch)
+### 부트 / launch
 
 ```mermaid
 sequenceDiagram
@@ -110,23 +130,25 @@ sequenceDiagram
     participant ML as ManifestLoader
     participant PS as ProcessSupervisor
     participant OS as OS (fork/exec)
-    participant AP as App (adas 등)
+    participant AP as App
 
     M->>ML: load("manifest.json")
     ML-->>M: vector<ProcessProfile>
 
     M->>PS: new ProcessSupervisor()
-    PS->>PS: watchdog 스레드 시작
+    PS->>PS: Watchdog 스레드 시작
 
-    loop 각 ProcessProfile (hasAnyEnabledFeature=true)
-        M->>PS: launch(profile)
-        PS->>OS: fork()
-        OS-->>PS: pid (부모)
-        OS-->>AP: pid=0 (자식)
-        AP->>OS: execvp(binary_path, [feature1, feature2, ...])
-        Note over AP: 앱 프로세스 실행<br/>argv로 활성 피처 목록 수신
-        PS->>PS: registry_[process_id] = {pid, state=Running}
-        PS-->>M: SupervisorError::Ok
+    loop 각 ProcessProfile
+        M->>PS: registerProfile(p)
+        PS->>PS: all_profiles_ 저장
+        PS->>PS: ShmManager 생성 (피처별 SHM)
+
+        opt hasAnyEnabledFeature()
+            M->>PS: launch(p)
+            PS->>OS: fork()
+            OS-->>AP: execvp(binary, [feat1, feat2, --loop-ms=N])
+            PS->>PS: registry_[id] = {pid, Running}
+        end
     end
 
     M->>M: CLI 루프 진입
@@ -134,100 +156,117 @@ sequenceDiagram
 
 ---
 
-### 2-2. gracefulKill (정상 종료)
-
-> 핵심: SIGTERM 발송 후 state = **Stopping**으로 전환 → watchdog 재시작 차단.
-> 앱이 SIGTERM 핸들러에서 cleanup 후 스스로 exit. timeout 초과 시 SIGKILL.
+### setFeatureFlag (런타임 ON/OFF)
 
 ```mermaid
 sequenceDiagram
     participant U  as User (CLI)
-    participant M  as main()
     participant PS as ProcessSupervisor
-    participant AP as App (adas 등)
+    participant SHM as SHM
+    participant AP as App
 
-    U->>M: "kill adas" 입력
-    M->>PS: gracefulKill("adas")
+    U->>PS: setFeatureFlag("navigation", "map_rendering", true)
+    PS->>PS: all_profiles_ 플래그 업데이트
+    PS->>SHM: is_enabled = true
+    opt 프로세스가 죽어있으면
+        PS->>PS: launchLocked(profile)
+    end
 
-    PS->>PS: registry에서 pid 조회
-    PS->>PS: state = Stopping (watchdog 재시작 방지)
-    PS->>AP: SIGTERM 전송
+    Note over AP: 다음 루프 주기에 SHM 읽기
+    AP->>SHM: is_enabled?
+    SHM-->>AP: true
+    AP->>AP: onUpdate("map_rendering") 실행
 
-    Note over AP: onSignal() 호출됨
-    AP->>AP: g_running = 0
-    AP->>AP: while 루프 탈출 → cleanup → exit(0)
-
-    PS->>PS: waitpid(WNOHANG) 폴링 (50ms 간격)
-    PS->>PS: registry_.erase("adas")
-    PS-->>M: SupervisorError::Ok
-    M-->>U: "[Supervisor] 정상 종료: adas"
-
-    Note over PS: timeout(2000ms) 초과 시 → hardKill 호출
+    U->>PS: setFeatureFlag("navigation", "map_rendering", false)
+    PS->>SHM: is_enabled = false
+    Note over AP: 다음 루프 주기부터 onUpdate skip
+    Note over AP: 모든 피처 OFF → 자율 종료
+    Note over PS: Watchdog이 종료 감지, hasAnyEnabledFeature() = false → 재시작 안 함
 ```
 
 ---
 
-### 2-3. hardKill (강제 종료)
+### gracefulKill
 
 ```mermaid
 sequenceDiagram
     participant U  as User (CLI)
-    participant M  as main()
     participant PS as ProcessSupervisor
     participant AP as App
 
-    U->>M: "hkill adas" 입력
-    M->>PS: hardKill("adas")
+    U->>PS: gracefulKill("adas")
+    PS->>PS: state = Stopping (Watchdog 재시작 차단)
+    PS->>AP: SHM is_killed = true  (모든 피처)
+    PS->>AP: SIGTERM 전송 (동시)
 
-    PS->>PS: state = Disabled
-    PS->>AP: SIGKILL 전송
-    Note over AP: 즉시 강제 종료 (cleanup 없음)
-
-    PS->>PS: waitpid() 블로킹 대기
+    Note over AP: is_killed 감지 → onStop() → exit
+    PS->>PS: waitpid(WNOHANG) 폴링 50ms 간격
     PS->>PS: registry_.erase("adas")
-    PS-->>M: SupervisorError::Ok
-    M-->>U: "[Supervisor] SIGKILL 완료: adas"
+    PS-->>U: Ok
+
+    Note over PS: timeout 2000ms 초과 시 → hardKill
 ```
 
 ---
 
-### 2-4. Watchdog - 자동 재시작 (+ retry_count 초기화)
+### hardKill
 
-> **retry_count 초기화 규칙**: 프로세스가 30초 이상 안정적으로 실행된 뒤 crash하면
-> "일시적 오류"로 보고 retry_count를 0으로 초기화. 영구 Disabled 방지.
+```mermaid
+sequenceDiagram
+    participant U  as User (CLI)
+    participant PS as ProcessSupervisor
+    participant AP as App
+
+    U->>PS: hardKill("adas")
+    PS->>PS: state = Disabled
+    PS->>AP: SHM is_killed = true  (모든 피처)
+    Note over AP: 최대 200ms 안에 자발적 종료 기회
+    PS->>PS: waitpid(WNOHANG) 폴링 (200ms 타임아웃)
+
+    alt 200ms 내 자발적 종료
+        PS->>PS: registry_.erase("adas")
+        PS-->>U: Ok (Kill Switch 종료)
+    else 200ms 초과
+        PS->>AP: SIGKILL
+        PS->>PS: waitpid() 블로킹
+        PS->>PS: registry_.erase("adas")
+        PS-->>U: Ok (SIGKILL 완료)
+    end
+```
+
+---
+
+### Watchdog 자동 재시작
 
 ```mermaid
 sequenceDiagram
     participant WD as Watchdog 스레드
     participant PS as ProcessSupervisor
-    participant AP as App (adas 등)
     participant OS as OS
 
     loop 500ms마다
-        WD->>PS: registry_ 순회 (state == Running 만 대상)
+        WD->>PS: registry_ 순회 (state == Running 만)
         PS->>OS: waitpid(pid, WNOHANG)
 
-        alt 앱이 살아있음
-            OS-->>WD: 0 반환 → skip
-        else 앱이 crash / 비정상 종료
+        alt 살아있음
+            OS-->>WD: 0 → skip
+        else 종료 감지
             OS-->>WD: pid 반환
-            WD->>WD: 가동 시간 계산<br/>(now - last_started_at)
+            WD->>WD: 가동시간 >= 30s? → retry_count = 0
+            WD->>WD: hasAnyEnabledFeature()?
 
-            alt 가동 시간 >= 30초 (안정적으로 실행됐음)
-                WD->>WD: retry_count = 0 (초기화)
-            end
-
-            WD->>WD: retry_count 확인
-
-            alt retry_count < max_retries
-                WD->>WD: retry_count++
-                WD->>WD: retry_delay_ms 대기
-                WD->>PS: launch(profile)
-                PS->>OS: fork() + execvp()
-                OS-->>AP: 앱 재시작
-            else retry_count >= max_retries
-                WD->>WD: state = Disabled
-                WD->>WD: DISABLE_FLAG 로그 출력
+            alt 모든 피처 OFF (자율 종료)
+                WD->>WD: state = Disabled, 재시작 안 함
+            else 피처 활성 중
+                alt retry_count < max_retries
+                    WD->>WD: retry_count++
+                    WD->>PS: launchLocked(profile)
+                else action_on_failure == "RESTART"
+                    WD->>WD: retry_count = 1 (무한 재시도)
+                    WD->>PS: launchLocked(profile)
+                else DISABLE_FLAG
+                    WD->>WD: state = Disabled
+                end
             end
         end
     end
@@ -235,107 +274,38 @@ sequenceDiagram
 
 ---
 
-### 2-5. 종료 시 소멸자 처리
+### 프로세스 상태 전이
 
-```mermaid
-sequenceDiagram
-    participant U  as User (CLI)
-    participant M  as main()
-    participant PS as ProcessSupervisor
-    participant WD as Watchdog 스레드
-    participant AP as App들
-
-    U->>M: "quit" 입력
-    M->>M: CLI 루프 탈출
-    M->>PS: ~ProcessSupervisor() 호출
-
-    PS->>WD: running_ = false
-    WD->>WD: 루프 탈출
-    PS->>PS: watchdog_thread_.join()
-
-    loop registry_의 모든 프로세스
-        PS->>AP: SIGTERM 전송
-        PS->>PS: waitpid() 대기
-    end
-
-    PS-->>M: 소멸 완료
-    M->>M: EXIT_SUCCESS
+```
+         registerProfile() + launch()
+  [없음] ────────────────────────────► [Running]
+                                           │
+                              gracefulKill()│        Watchdog 크래시 감지
+                                           │     ┌──────────────────────────┐
+                                     [Stopping]  │  retry < max → 재시작    │
+                                           │     │  retry >= max            │
+                                    waitpid()    │    DISABLE_FLAG → Disabled│
+                                    or SIGKILL   │    RESTART → 무한 재시도  │
+                                           │     └──────────────────────────┘
+                                           ▼
+                                      [Disabled]
+                              (registry 유지, 재시작 없음)
 ```
 
 ---
 
-### 2-6. [Phase 2] SHM 기반 피처 단위 런타임 제어
+## SHM 수명 관리
 
-> 프로세스를 재시작하지 않고 개별 피처를 ON/OFF.
-> Supervisor가 SHM에 쓰고, 앱이 자신의 루프에서 읽는다.
-
-```mermaid
-sequenceDiagram
-    participant U   as User (CLI)
-    participant M   as main()
-    participant PS  as ProcessSupervisor
-    participant SHM as Shared Memory
-    participant AP  as App (navigation 등)
-
-    Note over AP: 부팅 시 SHM 연결 후 루프 실행 중
-
-    U->>M: "set navigation map_rendering on" 입력
-    M->>PS: setFeatureFlag("navigation", "map_rendering", true)
-    PS->>SHM: shm["map_rendering"].is_enabled = true
-
-    Note over AP: 다음 루프 주기(100ms)에 SHM 체크
-    AP->>SHM: is_enabled 읽기
-    SHM-->>AP: true
-    AP->>AP: map_rendering 로직 실행 시작
-
-    U->>M: "set navigation map_rendering off" 입력
-    M->>PS: setFeatureFlag("navigation", "map_rendering", false)
-    PS->>SHM: shm["map_rendering"].is_enabled = false
-
-    Note over AP: 다음 루프 주기에 SHM 체크
-    AP->>SHM: is_enabled 읽기
-    SHM-->>AP: false
-    AP->>AP: map_rendering 로직 중단 (프로세스는 유지)
-```
-
----
-
-## 3. 프로세스 상태 전이
+SHM은 **프로세스 수명이 아닌 피처 등록 수명**을 따릅니다.
 
 ```
-         launch()
-  [없음] ─────────► [Running]
-                        │
-            gracefulKill()│           앱 crash 감지 (watchdog)
-                          │           ┌─────────────────────────┐
-                    ┌─────▼─────┐     │  가동 >= 30s → retry_count = 0
-                    │ Stopping  │     │  retry_count < max_retries
-                    │ (SIGTERM) │     │       → retry_count++
-                    └─────┬─────┘     │       → retry_delay_ms 후 launch()
-                          │           │       → [Running]
-                   waitpid()          │
-                   성공 or            │  retry_count >= max_retries
-                   timeout→SIGKILL    │       → state = Disabled
-                          │           └─────────────────────────┘
-                          ▼
-                     [Disabled]
-                (재시작 없음, registry 유지)
+registerProfile()  → ShmManager 생성 (SHM /dev/shm/platform_<id> 생성)
+launch()           → 프로세스 기동, SHM is_killed 초기화
+프로세스 종료      → SHM 유지 (Supervisor가 계속 소유)
+프로세스 재기동    → 기존 SHM 재사용 (is_killed = false 초기화)
+~ProcessSupervisor → ShmManager 소멸 → shm_unlink
 ```
 
----
-
-## 4. SHM 레이아웃 (Phase 2)
-
-```
-/dev/shm/platform_<feature_id>  (POSIX SHM, 피처별 1개)
-
-struct FeatureControlState {
-    atomic<bool>     is_enabled;   // 피처 활성 여부 (Feature Flag)
-    atomic<bool>     is_killed;    // 비상 정지 (Kill Switch)
-    atomic<uint64_t> heartbeat;    // 앱이 주기적으로 증가시킴 (생존 확인)
-};
-
-우선순위: is_killed > is_enabled
-is_killed == true  → 즉시 해당 피처 중단 (is_enabled 무시)
-is_enabled == false → 해당 피처 로직 실행 안 함
-```
+이렇게 설계한 이유:
+- **BUG-1 방지**: 이전 설계에서는 launchLocked()가 SHM을 재생성할 때 기존 ShmManager가 소멸되며 shm_unlink가 발생 → 자식 프로세스가 shm_open 실패 → SHM 없이 실행 → 자율 종료 조건 미충족 → 프로세스가 영원히 생존하는 버그
+- **단순성**: Supervisor가 SHM의 단일 소유자, 앱은 connect()로 읽기·쓰기만
