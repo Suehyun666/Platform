@@ -45,7 +45,11 @@ int SdvAppFrame::run(int argc, char* argv[]) {
         }
     }
 
-    onStart(features);
+    // 피처별 onStart: 등록된 피처 → IFeature::onStart(), 미등록 → fallback
+    for (const auto& name : features) {
+        if (auto* feat = FeatureRegistry::instance().get(name)) feat->onStart();
+    }
+    onStart(features);  // fallback (SDV_FEATURE 미사용 앱용)
 
     bool killed = false;
     while (running_ && !killed) {
@@ -59,17 +63,21 @@ int SdvAppFrame::run(int argc, char* argv[]) {
             if (shm->is_enabled.load(std::memory_order_relaxed)) {
                 any_enabled = true;
                 shm->heartbeat.fetch_add(1, std::memory_order_relaxed);
-                onUpdate(name);
+                if (auto* feat = FeatureRegistry::instance().get(name)) feat->onUpdate();
+                else onUpdate(name);  // fallback
             }
         }
         if (!killed) {
-            // 모든 피처가 OFF되면 스스로 종료 (Supervisor가 자동 재기동)
             if (!any_enabled && !slots_.empty()) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(loop_interval_ms_));
         }
     }
 
-    onStop();
+    // 피처별 onStop: 등록된 피처 → IFeature::onStop(), 미등록 → fallback
+    for (const auto& [name, ptr] : slots_) {
+        if (auto* feat = FeatureRegistry::instance().get(name)) feat->onStop();
+    }
+    onStop();  // fallback
     for (auto& [name, ptr] : slots_)
         munmap(ptr, sizeof(FeatureControlState));
     return 0;

@@ -38,6 +38,7 @@ add_custom_command(TARGET Platform POST_BUILD
 add_library(sdv_sdk STATIC
     src/sdk/SdvAppFrame.cpp
     src/sdk/ShmManager.cpp
+    src/sdk/Feature.cpp
 )
 target_include_directories(sdv_sdk PUBLIC src/sdk)
 target_link_libraries(sdv_sdk PUBLIC rt)
@@ -45,10 +46,18 @@ target_link_libraries(sdv_sdk PUBLIC rt)
 # ── 앱 바이너리 ─────────────────────────────────────────────────────────────
 set(APP_OUTPUT_DIR ${CMAKE_SOURCE_DIR}/application/bin)
 
-add_executable(adas application/adas.cpp)
+add_executable(adas
+    application/adas/main.cpp
+    application/adas/collision_avoidance.cpp
+    application/adas/blind_spot_detection.cpp
+)
 target_link_libraries(adas PRIVATE sdv_sdk)
 set_target_properties(adas PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${APP_OUTPUT_DIR})
 
-add_executable(navigation application/navigation.cpp)
+add_executable(navigation
+    application/navigation/main.cpp
+    application/navigation/route_guidance.cpp
+    application/navigation/map_rendering.cpp
+)
 target_link_libraries(navigation PRIVATE sdv_sdk)
 set_target_properties(navigation PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${APP_OUTPUT_DIR})
